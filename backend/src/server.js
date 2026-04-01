@@ -1,0 +1,203 @@
+const dotenv = require('dotenv');
+const path = require('node:path');
+
+// Load root-level .env so backend works when launched from either root or backend folder.
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
+dotenv.config();
+
+const express = require('express');
+const rateLimit = require('express-rate-limit');
+
+// 1. Auth Engine
+const Auth = require('./auth-engine/index'); // Adjust if auth-engine entry is different
+const KnexAuthAdapter = require('./auth-engine/adapters/storage/KnexAuthAdapter');
+const knex = require('knex');
+
+// 2. Wallet Engine
+const WalletCore = require('./wallet-engine/core/WalletCore');
+const PostgresWalletAdapter = require('./wallet-engine/adapters/storage/PostgresWalletAdapter');
+const createWalletRouter = require('./wallet-engine/router/walletRouter');
+const { query, pool } = require('./config/db');
+const { sendEmailVerification } = require('./auth-engine/services/emailSender');
+
+const app = express();
+app.use(express.json());
+app.set('trust proxy', 1);
+
+const frontendDir = path.resolve(__dirname, '..', '..', 'frontend', 'dist');
+app.use(express.static(frontendDir));
+
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+}
+
+// Initialize the Knex Database Connection for the Auth Engine
+const dbInstance = knex({
+    client: 'pg',
+    connection: process.env.DATABASE_URL,
+});
+
+// Initialize the universal Adapters
+const authAdapter = new KnexAuthAdapter(dbInstance);
+const walletAdapter = new PostgresWalletAdapter();
+
+const authLimiter = rateLimit({
+    windowMs: Number.parseInt(process.env.AUTH_RATE_WINDOW_MS, 10) || 15 * 60 * 1000,
+    max: Number.parseInt(process.env.AUTH_RATE_MAX, 10) || 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'RATE_LIMIT_EXCEEDED' }
+});
+
+const authLoginLimiter = rateLimit({
+    windowMs: Number.parseInt(process.env.AUTH_LOGIN_RATE_WINDOW_MS, 10) || 15 * 60 * 1000,
+    max: Number.parseInt(process.env.AUTH_LOGIN_RATE_MAX, 10) || 15,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'TOO_MANY_LOGIN_ATTEMPTS' }
+});
+
+const walletLimiter = rateLimit({
+    windowMs: Number.parseInt(process.env.WALLET_RATE_WINDOW_MS, 10) || 60 * 1000,
+    max: Number.parseInt(process.env.WALLET_RATE_MAX, 10) || 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'RATE_LIMIT_EXCEEDED' }
+});
+
+// The claims block proves our Dual-Engine Architecture works.
+// We map the user's ID to the Wallet `accountId` seamlessly via the JWT claim.
+const claimsResolver = async ({ userId, sessionId, context }) => {
+    // The Auth Engine prefixes user IDs with 'user_'.
+    // However, the Wallet Engine strictly expects a UUID format, so we strip the prefix here.
+    const walletAccountId = userId.startsWith('user_') ? userId.replace('user_', '') : userId;
+    return { accountId: walletAccountId, roles: ['user'] };
+};
+
+// The policyResolver handles role-based access control inside the Auth Engine
+const policyResolver = async ({ policy, claims, context }) => {
+    const roles = Array.isArray(claims?.roles) ? claims.roles : [];
+
+    if (policy === 'wallet:admin') return roles.includes('admin');
+    if (policy === 'wallet:user') return roles.includes('user') || roles.includes('admin');
+
+    // Deny unknown policies by default.
+    return false;
+};
+
+// Booting up the Auth Engine with our Postgres Adapter
+const authSystem = Auth.init({
+    storageAdapter: authAdapter,
+    claimsResolver: claimsResolver,
+    policyResolver: policyResolver,
+    jwtSecret: process.env.JWT_SECRET,
+    accessExpiry: '15m',
+    refreshExpiryMs: 7 * 24 * 60 * 60 * 1000
+});
+
+authSystem.onEmailVerificationRequested(async ({ identifier, rawToken, expiresAt }) => {
+    try {
+        await sendEmailVerification({
+            toEmail: identifier,
+            rawToken,
+            expiresAt
+        });
+    } catch (err) {
+        console.error('[Email Verification] Failed to send verification email:', err.message);
+    }
+});
+
+// Booting up the Wallet Engine with our Postgres Adapter
+const walletCore = new WalletCore(walletAdapter);
+const walletRouter = createWalletRouter(walletCore, {
+    resolveRecipientAccountId: async (email) => {
+        if (typeof email !== 'string') return null;
+        const normalized = email.trim().toLowerCase();
+        if (!normalized) return null;
+
+        const user = await authAdapter.findUserByIdentifier(normalized);
+        if (!user?.id) return null;
+
+        return user.id;
+    }
+});
+
+// Public Routes
+app.use('/auth', authLimiter);
+app.use('/auth/login', authLoginLimiter);
+app.use('/auth', authSystem.router);
+
+// Protected Routes (The Magic happens here)
+app.use('/api/wallet', walletLimiter, authSystem.authenticate, walletRouter);
+
+app.get('/healthz', (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        service: 'dbt-project-wallet',
+        uptimeSeconds: Math.floor(process.uptime())
+    });
+});
+
+app.get('/readyz', async (req, res) => {
+    try {
+        await query('SELECT 1 AS ready');
+        await dbInstance.raw('SELECT 1 AS ready');
+
+        return res.status(200).json({ status: 'ready' });
+    } catch (err) {
+        console.error('Readiness check failed:', err);
+        return res.status(503).json({ status: 'not_ready' });
+    }
+});
+
+// Catch-all route to serve the SPA for missing API endpoints
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/auth')) {
+        return res.status(404).json({ error: 'Not Found' });
+    }
+    res.sendFile(path.join(frontendDir, 'index.html'));
+});
+
+const PORT = process.env.PORT || 3000;
+let server = null;
+
+const gracefulShutdown = async (signal) => {
+    console.log(`${signal} received. Shutting down server gracefully...`);
+
+    const closeServer = () => new Promise((resolve) => {
+        if (!server) return resolve();
+        server.close(() => resolve());
+    });
+
+    await closeServer();
+    await Promise.allSettled([
+        dbInstance.destroy(),
+        pool.end()
+    ]);
+
+    process.exit(0);
+};
+
+process.on('SIGINT', () => {
+    void gracefulShutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+    void gracefulShutdown('SIGTERM');
+});
+
+console.log('Building schemas dynamically...');
+// eslint-disable-next-line unicorn/prefer-top-level-await
+authAdapter
+    .initSchema()
+    .then(() => {
+        server = app.listen(PORT, () => {
+            console.log(`Dual-Engine Backend running at http://localhost:${PORT}`);
+            console.log('   Auth Engine (Knex Schema Builder): /auth/*');
+            console.log('   Wallet Engine (Raw PG): /api/wallet/*');
+        });
+    })
+    .catch((e) => {
+        console.error('Failed to boot:', e);
+        process.exit(1);
+    });
