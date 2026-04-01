@@ -1,0 +1,28 @@
+{
+  "name": "dbt-project-wallet",
+  "version": "1.0.0",
+  "description": "",
+  "main": "backend/src/server.js",
+  "scripts": {
+    "dev": "npx nodemon backend/src/server.js",
+    "dev:backend": "npx nodemon backend/src/server.js",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "start": "node backend/src/server.js",
+    "start:backend": "node backend/src/server.js",
+    "test": "npm --prefix backend/src/auth-engine test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "jsonwebtoken": "^9.0.3",
+    "knex": "^3.1.0",
+    "nodemailer": "^8.0.3",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
+  }
+}
