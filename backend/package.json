@@ -1,0 +1,10 @@
+{
+  "name": "dbt-project-wallet-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "npx nodemon src/server.js",
+    "start": "node src/server.js"
+  }
+}
