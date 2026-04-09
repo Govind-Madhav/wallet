@@ -4,6 +4,9 @@
   "description": "",
   "main": "backend/src/server.js",
   "scripts": {
+    "install:all": "npm install && npm --prefix backend install && npm --prefix backend/src/auth-engine install && npm --prefix frontend install && npm --prefix frontend/frontend install",
+    "db:setup": "node db-scripts/create_db.js && node db-scripts/init_db.js",
+    "setup": "npm run install:all && npm run db:setup",
     "dev": "npx nodemon backend/src/server.js",
     "dev:backend": "npx nodemon backend/src/server.js",
     "dev:frontend": "npm --prefix frontend run dev",
