@@ -33,12 +33,43 @@ class MysqlWalletAdapter {
         return rows;
     }
 
+    async getTransferCounterpartyAccountId(referenceId, currentAccountId) {
+        const baseReference = String(referenceId || '').replace(/_(out|in)$/u, '');
+        if (!baseReference) return null;
+
+        const result = await query(
+            `SELECT account_id, transaction_type, reference_id
+             FROM ledger
+             WHERE reference_id IN (?, ?)
+             ORDER BY created_at ASC, id ASC`,
+            [`${baseReference}_out`, `${baseReference}_in`]
+        );
+
+        const rows = Array.isArray(result.rows) ? result.rows : [];
+
+        const counterpartyRow = rows.find((row) => row.account_id !== currentAccountId);
+        return counterpartyRow?.account_id || null;
+    }
+
     async getBalance(accountId) {
         const res = await query(
             `SELECT COALESCE(SUM(amount), 0) AS balance FROM ledger WHERE account_id = ?`,
             [accountId]
         );
         return Number.parseFloat(res.rows[0]?.balance || 0);
+    }
+
+    async getRecentTransactions(accountId, limit = 5) {
+        const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(Number(limit), 20)) : 5;
+        const res = await query(
+            `SELECT id, account_id, amount, transaction_type, reference_id, created_at
+             FROM ledger
+             WHERE account_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?`,
+            [accountId, safeLimit]
+        );
+        return res.rows;
     }
 
     async executeDeposit(accountId, amount, referenceId) {

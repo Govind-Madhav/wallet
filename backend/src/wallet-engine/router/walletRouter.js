@@ -52,8 +52,16 @@ const normalizeAccountId = (value) => {
     return trimmed;
 };
 
+const normalizeLedgerReference = (value) => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    return trimmed.replace(/_(out|in)$/u, '');
+};
+
 function createWalletRouter(walletCore, options = {}) {
-    const { resolveRecipientAccountId } = options;
+    const { resolveRecipientAccountId, resolveAccountDisplayDetails } = options;
     const router = express.Router();
 
     router.get('/balance', async (req, res) => {
@@ -64,6 +72,47 @@ function createWalletRouter(walletCore, options = {}) {
             
             const balance = await walletCore.getBalance(accountId);
             res.json({ balance });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    router.get('/recent-transactions', async (req, res) => {
+        try {
+            const accountId = normalizeAccountId(req.claims?.accountId);
+            if (!accountId) return res.status(403).json({ error: 'Unauthorized: Missing account identifier' });
+
+            const limitValue = Number.parseInt(req.query.limit, 10);
+            const transactions = await walletCore.getRecentTransactions(accountId, limitValue);
+
+            const enrichedTransactions = await Promise.all(transactions.map(async (transaction) => {
+                const baseReference = normalizeLedgerReference(transaction?.reference_id);
+                const counterpartyAccountId = transaction?.transaction_type?.startsWith('TRANSFER') && baseReference
+                    ? await walletCore.adapter.getTransferCounterpartyAccountId(transaction.reference_id, accountId)
+                    : null;
+                let counterparty = null;
+                let directionLabel = null;
+
+                if (transaction.transaction_type === 'TRANSFER_OUT') {
+                    directionLabel = 'Sent to';
+                } else if (transaction.transaction_type === 'TRANSFER_IN') {
+                    directionLabel = 'Received from';
+                }
+
+                if (counterpartyAccountId && typeof resolveAccountDisplayDetails === 'function') {
+                    counterparty = await resolveAccountDisplayDetails(counterpartyAccountId);
+                }
+
+                return {
+                    ...transaction,
+                    counterpartyAccountId,
+                    counterpartyLabel: counterparty?.label || null,
+                    counterpartyEmail: counterparty?.email || null,
+                    directionLabel
+                };
+            }));
+
+            res.json({ transactions: enrichedTransactions });
         } catch (e) {
             res.status(500).json({ error: e.message });
         }

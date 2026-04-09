@@ -7,6 +7,11 @@ class WalletCore {
         return await this.adapter.getBalance(accountId);
     }
 
+    async getRecentTransactions(accountId, limit = 5) {
+        if (!accountId) throw new Error('Account ID is required');
+        return await this.adapter.getRecentTransactions(accountId, limit);
+    }
+
     async deposit(accountId, amount, referenceId) {
         if (amount <= 0) throw new Error('Deposit amount must be > 0');
         return await this.adapter.executeDeposit(accountId, amount, referenceId);
