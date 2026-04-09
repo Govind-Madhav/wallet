@@ -1,0 +1,1 @@
+process.env.EMAIL_VERIFICATION_REQUIRED = 'false';

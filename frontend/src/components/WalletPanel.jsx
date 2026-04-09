@@ -47,6 +47,7 @@ export function WalletPanel({ session, addLog, addToast }) {
       addToast('Success', `${type.toUpperCase()} completed`, 'success');
       addLog(`${type.toUpperCase()}_SUCCESS`, JSON.stringify(res, null, 2));
       e.target.reset();
+      window.dispatchEvent(new CustomEvent('wallet-transactions-updated'));
       await handleFetchBalance();
     } catch (err) {
       addToast(`${type} Failed`, err.message, 'error');
@@ -59,7 +60,7 @@ export function WalletPanel({ session, addLog, addToast }) {
       <div className="panel grid two">
         <div className="stack">
           <h2>Current Balance</h2>
-          <div className="metric">${Number(balance).toFixed(2)}</div>
+          <div className="metric">{Number(balance).toFixed(2)}</div>
         </div>
         
         <div className="stack">

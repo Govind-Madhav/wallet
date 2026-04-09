@@ -5,6 +5,7 @@ require('dotenv').config();
 const Auth = require('./index');
 const SqliteStorageAdapter = require('./adapters/storage/sqlite');
 const { sqlite } = require('./db');
+const { sendPasswordResetEmail, sendEmailVerification } = require('./services/emailSender');
 
 const app = express();
 
@@ -64,11 +65,29 @@ const authSystem = Auth.init({
 
 // In development, log password reset token so you can test without email
 authSystem.onPasswordResetRequested(({ identifier, rawToken, expiresAt }) => {
+    void sendPasswordResetEmail({
+        toEmail: identifier,
+        rawToken,
+        expiresAt
+    }).catch((error) => {
+        console.error('[Password Reset] Failed to send recovery email:', error);
+    });
+
     if (process.env.NODE_ENV !== 'production') {
         console.log('[Dev] Password reset requested for:', identifier);
         console.log('[Dev] Reset token (use in Reset Password form):', rawToken);
         console.log('[Dev] Expires at:', expiresAt);
     }
+});
+
+authSystem.onEmailVerificationRequested(({ identifier, rawToken, expiresAt }) => {
+    void sendEmailVerification({
+        toEmail: identifier,
+        rawToken,
+        expiresAt
+    }).catch((error) => {
+        console.error('[Email Verification] Failed to send verification email:', error);
+    });
 });
 
 app.use('/auth', authLimiter);

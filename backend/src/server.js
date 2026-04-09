@@ -18,7 +18,7 @@ const WalletCore = require('./wallet-engine/core/WalletCore');
 const MysqlWalletAdapter = require('./wallet-engine/adapters/storage/MysqlWalletAdapter');
 const createWalletRouter = require('./wallet-engine/router/walletRouter');
 const { query, pool } = require('./config/db');
-const { sendEmailVerification } = require('./auth-engine/services/emailSender');
+const { sendEmailVerification, sendPasswordResetEmail } = require('./auth-engine/services/emailSender');
 
 const app = express();
 app.use(express.json());
@@ -65,16 +65,14 @@ const walletLimiter = rateLimit({
     message: { error: 'RATE_LIMIT_EXCEEDED' }
 });
 
-// The claims block proves our Dual-Engine Architecture works.
-// We map the user's ID to the Wallet `accountId` seamlessly via the JWT claim.
+
 const claimsResolver = async ({ userId, sessionId, context }) => {
-    // The Auth Engine prefixes user IDs with 'user_'.
-    // However, the Wallet Engine strictly expects a UUID format, so we strip the prefix here.
+    
     const walletAccountId = userId.startsWith('user_') ? userId.replace('user_', '') : userId;
     return { accountId: walletAccountId, roles: ['user'] };
 };
 
-// The policyResolver handles role-based access control inside the Auth Engine
+
 const policyResolver = async ({ policy, claims, context }) => {
     const roles = Array.isArray(claims?.roles) ? claims.roles : [];
 
@@ -107,6 +105,24 @@ authSystem.onEmailVerificationRequested(async ({ identifier, rawToken, expiresAt
     }
 });
 
+authSystem.onPasswordResetRequested(async ({ identifier, rawToken, expiresAt }) => {
+    try {
+        await sendPasswordResetEmail({
+            toEmail: identifier,
+            rawToken,
+            expiresAt
+        });
+    } catch (err) {
+        console.error('[Password Reset] Failed to send recovery email:', err.message);
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('[Dev] Password reset requested for:', identifier);
+        console.log('[Dev] Recovery code:', rawToken);
+        console.log('[Dev] Expires at:', expiresAt);
+    }
+});
+
 // Booting up the Wallet Engine with our MySQL Adapter
 const walletCore = new WalletCore(walletAdapter);
 const walletRouter = createWalletRouter(walletCore, {
@@ -119,6 +135,20 @@ const walletRouter = createWalletRouter(walletCore, {
         if (!user?.id) return null;
 
         return user.id;
+    },
+    resolveAccountDisplayDetails: async (accountId) => {
+        if (typeof accountId !== 'string' || !accountId.trim()) return null;
+
+        const userId = accountId.startsWith('user_') ? accountId : `user_${accountId}`;
+        const user = await authAdapter.findUserById(userId);
+        if (!user) return null;
+
+        return {
+            label: user.identifier,
+            email: user.identifier,
+            userId: user.id,
+            accountId: user.id.startsWith('user_') ? user.id.replace('user_', '') : user.id
+        };
     }
 });
 

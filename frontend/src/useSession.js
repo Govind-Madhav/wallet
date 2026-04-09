@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 
 const STORAGE_KEY = 'wallet-console-session';
+const getStorage = () => window.sessionStorage;
 
 export function useSession() {
   const [session, setSession] = useState(() => {
     const empty = { accessToken: '', refreshToken: '', sessionId: '', identifier: '' };
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getStorage().getItem(STORAGE_KEY);
     if (!raw) {
       return empty;
     }
@@ -14,7 +15,7 @@ export function useSession() {
       const parsed = JSON.parse(raw);
       return { ...empty, ...parsed };
     } catch {
-      localStorage.removeItem(STORAGE_KEY);
+      getStorage().removeItem(STORAGE_KEY);
       return empty;
     }
   });
@@ -32,13 +33,13 @@ export function useSession() {
 
   const saveSession = (newSession) => {
     setSession(newSession);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSession));
+    getStorage().setItem(STORAGE_KEY, JSON.stringify(newSession));
   };
 
   const clearSession = () => {
     const empty = { accessToken: '', refreshToken: '', sessionId: '', identifier: '' };
     setSession(empty);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(empty));
+    getStorage().setItem(STORAGE_KEY, JSON.stringify(empty));
   };
 
   const updateTokens = (updates) => {

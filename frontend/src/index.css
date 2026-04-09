@@ -136,6 +136,24 @@ body {
   transition: all 0.3s ease;
 }
 
+.recent-transactions-panel {
+  height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-transactions-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.recent-transactions-list {
+  max-height: 100%;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
 .grid {
   display: grid;
   gap: 1.5rem;

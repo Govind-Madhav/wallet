@@ -219,6 +219,22 @@ module.exports = function createRouter(options = {}) {
                 return res.status(400).json({ error: 'Valid email and password are required' });
             }
 
+            if (requireVerifiedEmail) {
+                const verificationRequest = await emailVerificationEngine.requestPendingRegistrationVerification({
+                    identifier: resolvedIdentifier,
+                    password,
+                    metadata
+                });
+
+                if (verificationRequest) {
+                    events.emit(events.EVENTS.EMAIL_VERIFICATION_REQUESTED, verificationRequest);
+                }
+
+                return res.status(201).json({
+                    message: 'Registration pending verification. Verify OTP to activate account.'
+                });
+            }
+
             const user = await identityEngine.createUser({ identifier: resolvedIdentifier, password, metadata });
             events.emit('registrationSuccess', { userId: user.id });
 
@@ -229,8 +245,11 @@ module.exports = function createRouter(options = {}) {
 
             return res.status(201).json({ message: 'User registered successfully', userId: user.id });
         } catch (err) {
-            if (err.message === 'IDENTIFIER_IN_USE') {
+            if (err.message === 'IDENTIFIER_IN_USE' || err.message === 'User already exists') {
                 return res.status(409).json({ error: 'Identifier already exists' });
+            }
+            if (err.message === 'PENDING_REGISTRATION_NOT_SUPPORTED') {
+                return res.status(500).json({ error: 'REGISTER_STORAGE_MODE_NOT_SUPPORTED' });
             }
             if (err.message === 'INVALID_PASSWORD_POLICY') {
                 return res.status(400).json({ error: 'Password does not meet minimum policy requirements' });
@@ -401,7 +420,13 @@ module.exports = function createRouter(options = {}) {
             }
 
             return res.json({
-                message: 'If an account exists for this identifier, a reset link has been sent.'
+                message: 'If an account exists for this identifier, a reset link has been sent.',
+                ...(process.env.NODE_ENV !== 'production' && result
+                    ? {
+                        devRecoveryOtp: result.rawToken,
+                        devRecoveryExpiresAt: result.expiresAt
+                    }
+                    : {})
             });
         } catch (err) {
             console.error('Forgot password route error:', err);

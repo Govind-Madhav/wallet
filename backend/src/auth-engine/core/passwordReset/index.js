@@ -3,7 +3,7 @@ const tokenEngine = require('../token');
 
 let storageAdapter = null;
 
-const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+const RESET_TOKEN_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
 
 const __init__ = (injectedAdapter) => {
     if (!injectedAdapter) throw new Error('Storage adapter is required');
@@ -21,7 +21,7 @@ const requestPasswordReset = async (identifier) => {
     const user = await identityEngine.findUserByIdentifier(identifier);
     if (!user) return null;
 
-    const rawToken = tokenEngine.generateResetToken();
+    const rawToken = tokenEngine.generateOtpToken();
     const tokenHash = tokenEngine.hashResetToken(rawToken);
     const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
 

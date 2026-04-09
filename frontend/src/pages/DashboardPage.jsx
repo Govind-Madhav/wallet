@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { SessionPanel } from '../components/SessionPanel';
 import { WalletPanel } from '../components/WalletPanel';
+import { RecentTransactionsPanel } from '../components/RecentTransactionsPanel';
 
 export function DashboardPage({ session, clearSession, addLog, addToast }) {
   // Protect this route
@@ -23,10 +24,7 @@ export function DashboardPage({ session, clearSession, addLog, addToast }) {
           addLog={addLog} 
           addToast={addToast} 
         />
-        <div className="panel stack" style={{ justifyContent: 'center', alignItems: 'center' }}>
-           <h2 style={{ color: 'var(--accent)', margin: 0 }}>Ready to Transact</h2>
-           <p className="muted" style={{ textAlign: 'center' }}>Your account is fully secured. You can now send or receive funds instantly.</p>
-        </div>
+        <RecentTransactionsPanel session={session} addLog={addLog} addToast={addToast} />
       </section>
 
       <WalletPanel 

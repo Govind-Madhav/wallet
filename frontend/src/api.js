@@ -7,6 +7,7 @@ class ApiError extends Error {
 }
 
 export async function request(path, options = {}) {
+  const storage = window.sessionStorage;
   const { session, _retry, ...fetchOptions } = options;
   const headers = {
     'Content-Type': 'application/json',
@@ -52,8 +53,8 @@ export async function request(path, options = {}) {
         window.dispatchEvent(new CustomEvent('session-updated', { detail: refreshData }));
         
         // Update persistent storage
-        const stored = JSON.parse(localStorage.getItem('wallet-console-session') || '{}');
-        localStorage.setItem('wallet-console-session', JSON.stringify({ ...stored, ...refreshData }));
+        const stored = JSON.parse(storage.getItem('wallet-console-session') || '{}');
+        storage.setItem('wallet-console-session', JSON.stringify({ ...stored, ...refreshData }));
 
         // Retry the original request
         return await request(path, { ...options, _retry: true });
@@ -83,6 +84,7 @@ export const authApi = {
 // Wallet API mappings
 export const walletApi = {
   getBalance: (session) => request('/api/wallet/balance', { session }),
+  getRecentTransactions: (session, limit = 5) => request(`/api/wallet/recent-transactions?limit=${limit}`, { session }),
   deposit: (body, session) => request('/api/wallet/deposit', { method: 'POST', body, session }),
   withdraw: (body, session) => request('/api/wallet/withdraw', { method: 'POST', body, session }),
   transfer: (body, session) => request('/api/wallet/transfer', { method: 'POST', body, session })

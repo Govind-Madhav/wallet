@@ -4,9 +4,13 @@
   "description": "",
   "main": "backend/src/server.js",
   "scripts": {
-    "install:all": "npm install && npm --prefix backend install && npm --prefix backend/src/auth-engine install && npm --prefix frontend install && npm --prefix frontend/frontend install",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix backend/src/auth-engine install && npm --prefix frontend install",
     "db:setup": "node db-scripts/create_db.js && node db-scripts/init_db.js",
     "setup": "npm run install:all && npm run db:setup",
+    "cleanup:unverified:dry": "node db-scripts/cleanup_unverified_users.js --older-than-minutes=0",
+    "cleanup:unverified": "node db-scripts/cleanup_unverified_users.js --apply --older-than-minutes=0",
+    "screenshot:tables": "node db-scripts/screenshot_tables.js",
+    "screenshot:test-results": "node db-scripts/screenshot_test_results.js",
     "dev": "npx nodemon backend/src/server.js",
     "dev:backend": "npx nodemon backend/src/server.js",
     "dev:frontend": "npm --prefix frontend run dev",
@@ -28,5 +32,8 @@
     "mysql2": "^3.15.2",
     "nodemailer": "^8.0.3",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
   }
 }

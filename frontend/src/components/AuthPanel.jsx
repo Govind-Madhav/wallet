@@ -72,7 +72,12 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
         setRegisterStep(2);
       } else {
         const res = await authApi[type](body);
-        addToast('Success', res.message, 'success');
+        if (type === 'forgotPassword' && res.devRecoveryOtp) {
+          setResetToken(res.devRecoveryOtp);
+          addToast('Recovery OTP', `Use OTP ${res.devRecoveryOtp} to reset your password.`, 'info');
+        } else {
+          addToast('Success', res.message, 'success');
+        }
         addLog(`${type.toUpperCase()}_SUCCESS`, res);
         if (type === 'resetPassword') {
           setActiveTab('login');
@@ -111,6 +116,11 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
   const handleResetPassword = async () => {
     if (!resetToken || !resetNewPassword) {
       addToast('Error', 'Token and new password required', 'error');
+      return;
+    }
+
+    if (!/^\d{6}$/.test(resetToken)) {
+      addToast('Error', 'Enter a valid 6-digit recovery OTP', 'error');
       return;
     }
 
@@ -175,9 +185,12 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
             <div className="stack" style={{ borderTop: '1px solid var(--line)', paddingTop: '1rem' }}>
               <input
                 name="token"
-                placeholder="Recovery Code"
+                placeholder="6-digit Recovery OTP"
                 value={resetToken}
-                onChange={(event) => setResetToken(event.target.value)}
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                onChange={(event) => setResetToken(event.target.value.replace(/\D/g, '').slice(0, 6))}
               />
               <input
                 name="newPassword"

@@ -47,14 +47,69 @@ const issueTokenForUser = async (user) => {
     };
 };
 
+const issueTokenHashAndExpiry = () => {
+    const rawToken = tokenEngine.generateOtpToken();
+    const tokenHash = tokenEngine.hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + VERIFY_TOKEN_EXPIRY_MS);
+    return { rawToken, tokenHash, expiresAt };
+};
+
+const requestPendingRegistrationVerification = async ({ identifier, password, metadata = {} }) => {
+    if (!storageAdapter) throw new Error('Email verification layer not initialized');
+    if (typeof storageAdapter.createPendingRegistration !== 'function') {
+        throw new TypeError('PENDING_REGISTRATION_NOT_SUPPORTED');
+    }
+
+    const existingUser = await identityEngine.findUserByIdentifier(identifier);
+    if (existingUser) {
+        throw new Error('IDENTIFIER_IN_USE');
+    }
+
+    identityEngine.validatePasswordPolicy(password);
+    const passwordHash = await identityEngine.hashPassword(password);
+    const { rawToken, tokenHash, expiresAt } = issueTokenHashAndExpiry();
+
+    await storageAdapter.createPendingRegistration({
+        identifier,
+        passwordHash,
+        metadata,
+        tokenHash,
+        expiresAt
+    });
+
+    return {
+        userId: null,
+        identifier,
+        rawToken,
+        expiresAt
+    };
+};
+
 const requestEmailVerificationByIdentifier = async (identifier) => {
     if (!storageAdapter) throw new Error('Email verification layer not initialized');
 
     const user = await identityEngine.findUserByIdentifier(identifier);
-    if (!user) return null;
-    if (isUserEmailVerified(user)) return null;
+    if (user) {
+        if (isUserEmailVerified(user)) return null;
+        return issueTokenForUser(user);
+    }
 
-    return issueTokenForUser(user);
+    if (typeof storageAdapter.findPendingRegistrationByIdentifier !== 'function' || typeof storageAdapter.rotatePendingRegistrationToken !== 'function') {
+        return null;
+    }
+
+    const pending = await storageAdapter.findPendingRegistrationByIdentifier(identifier);
+    if (!pending) return null;
+
+    const { rawToken, tokenHash, expiresAt } = issueTokenHashAndExpiry();
+    await storageAdapter.rotatePendingRegistrationToken(identifier, tokenHash, expiresAt);
+
+    return {
+        userId: null,
+        identifier,
+        rawToken,
+        expiresAt
+    };
 };
 
 const requestEmailVerificationForUser = async (user) => {
@@ -68,15 +123,44 @@ const verifyEmailWithToken = async (rawToken) => {
 
     const tokenHash = tokenEngine.hashResetToken(rawToken);
     const record = await storageAdapter.findAndConsumeEmailVerificationToken(tokenHash);
-    if (!record) throw new Error('INVALID_OR_EXPIRED_VERIFY_TOKEN');
+    if (record) {
+        await storageAdapter.markEmailVerified(record.userId);
+        return { userId: record.userId };
+    }
 
-    await storageAdapter.markEmailVerified(record.userId);
+    if (typeof storageAdapter.findAndConsumePendingRegistration !== 'function') {
+        throw new TypeError('INVALID_OR_EXPIRED_VERIFY_TOKEN');
+    }
 
-    return { userId: record.userId };
+    const pending = await storageAdapter.findAndConsumePendingRegistration(tokenHash);
+    if (!pending) throw new Error('INVALID_OR_EXPIRED_VERIFY_TOKEN');
+
+    let parsedMetadata = pending.metadata || {};
+    if (typeof pending.metadata === 'string') {
+        try {
+            parsedMetadata = JSON.parse(pending.metadata || '{}');
+        } catch {
+            parsedMetadata = {};
+        }
+    }
+
+    try {
+        const createdUser = await storageAdapter.createUser(pending.identifier, pending.password_hash, parsedMetadata);
+        await storageAdapter.markEmailVerified(createdUser.id);
+        return { userId: createdUser.id };
+    } catch (error) {
+        const existingUser = await identityEngine.findUserByIdentifier(pending.identifier);
+        if (existingUser) {
+            await storageAdapter.markEmailVerified(existingUser.id);
+            return { userId: existingUser.id };
+        }
+        throw error;
+    }
 };
 
 module.exports = {
     __init__,
+    requestPendingRegistrationVerification,
     requestEmailVerificationByIdentifier,
     requestEmailVerificationForUser,
     verifyEmailWithToken,

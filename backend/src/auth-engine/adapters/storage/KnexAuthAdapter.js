@@ -79,6 +79,21 @@ class KnexAuthAdapter {
             });
             console.log('Auth Engine: Created `email_verification_tokens` table via Knex Abstract Builder');
         }
+
+        const hasPendingRegistrations = await this.db.schema.hasTable('pending_registrations');
+        if (!hasPendingRegistrations) {
+            await this.db.schema.createTable('pending_registrations', (t) => {
+                t.string('id', 50).primary();
+                t.string('identifier', 255).unique().notNullable();
+                t.string('password_hash', 255).notNullable();
+                t.json('metadata');
+                t.string('token_hash', 255).unique().notNullable();
+                t.timestamp('expires_at').notNullable();
+                t.timestamp('used_at');
+                t.timestamps(true, true);
+            });
+            console.log('Auth Engine: Created `pending_registrations` table via Knex Abstract Builder');
+        }
         return true;
     }
 
@@ -240,6 +255,68 @@ class KnexAuthAdapter {
         });
         if (!updated) throw new Error('User not found');
         return true;
+    }
+
+    async createPendingRegistration({ identifier, passwordHash, metadata = {}, tokenHash, expiresAt }) {
+        const id = `preg_${randomUUID()}`;
+        const meta = typeof metadata === 'string' ? metadata : JSON.stringify(metadata || {});
+
+        await this.db.transaction(async (trx) => {
+            await trx('pending_registrations').where({ identifier }).del();
+
+            await trx('pending_registrations').insert({
+                id,
+                identifier,
+                password_hash: passwordHash,
+                metadata: meta,
+                token_hash: tokenHash,
+                expires_at: expiresAt
+            });
+        });
+
+        return { id, identifier, expiresAt };
+    }
+
+    async findPendingRegistrationByIdentifier(identifier) {
+        const pending = await this.db('pending_registrations')
+            .where({ identifier })
+            .andWhere('expires_at', '>', this.db.fn.now())
+            .whereNull('used_at')
+            .first();
+
+        return pending || null;
+    }
+
+    async rotatePendingRegistrationToken(identifier, tokenHash, expiresAt) {
+        const updated = await this.db('pending_registrations')
+            .where({ identifier })
+            .andWhere('expires_at', '>', this.db.fn.now())
+            .whereNull('used_at')
+            .update({
+                token_hash: tokenHash,
+                expires_at: expiresAt,
+                updated_at: this.db.fn.now()
+            });
+
+        return updated > 0;
+    }
+
+    async findAndConsumePendingRegistration(tokenHash) {
+        return await this.db.transaction(async (trx) => {
+            const pending = await trx('pending_registrations')
+                .where({ token_hash: tokenHash })
+                .andWhere('expires_at', '>', trx.fn.now())
+                .whereNull('used_at')
+                .first();
+
+            if (!pending) return null;
+
+            await trx('pending_registrations')
+                .where({ id: pending.id })
+                .update({ used_at: trx.fn.now(), updated_at: trx.fn.now() });
+
+            return pending;
+        });
     }
 }
 
