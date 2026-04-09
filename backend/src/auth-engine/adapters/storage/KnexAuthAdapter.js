@@ -19,7 +19,7 @@ class KnexAuthAdapter {
                 t.string('password_hash', 255).notNullable();
                 t.boolean('email_verified').notNullable().defaultTo(false);
                 t.timestamp('email_verified_at');
-                t.jsonb('metadata').defaultTo('{}');
+                t.json('metadata');
                 t.timestamps(true, true);
             });
             console.log('Auth Engine: Created `users` table via Knex Abstract Builder');
@@ -86,12 +86,13 @@ class KnexAuthAdapter {
         const id = `user_${randomUUID()}`;
         const meta = typeof metadata === 'string' ? metadata : JSON.stringify(metadata || {});
         try {
-            const [user] = await this.db('users').insert({
+            await this.db('users').insert({
                 id,
                 identifier,
                 password_hash: passwordHash,
                 metadata: meta
-            }).returning('*');
+            });
+            const user = await this.db('users').where({ id }).first();
             return user;
         } catch (error) {
             if (error.code === '23505' || error.code === 'ER_DUP_ENTRY' || error.message.includes('UNIQUE')) {
@@ -121,13 +122,14 @@ class KnexAuthAdapter {
     }
 
     async createSession({ sessionId, userId, refreshTokenHash, tenantId, expiresAt }) {
-        const [session] = await this.db('sessions').insert({
+        await this.db('sessions').insert({
             session_id: sessionId,
             user_id: userId,
             refresh_token_hash: refreshTokenHash,
             tenant_id: tenantId || null,
             expires_at: expiresAt
-        }).returning('*');
+        });
+        const session = await this.db('sessions').where({ session_id: sessionId }).first();
         return session ? {
             sessionId: session.session_id,
             userId: session.user_id,

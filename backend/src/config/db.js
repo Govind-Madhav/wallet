@@ -1,27 +1,32 @@
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 // Shared Connection Pool for both Auth Engine and Wallet Engine
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+const pool = mysql.createPool({
+    uri: process.env.DATABASE_URL,
+    waitForConnections: true,
+    connectionLimit: 20,
+    queueLimit: 0,
+    multipleStatements: true,
+    enableKeepAlive: true,
+    idleTimeout: 30000,
+    connectTimeout: 2000,
 });
 
 const query = async (text, params) => {
-    return pool.query(text, params);
+    const [rows] = await pool.query(text, params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
 };
 
 const runInTransaction = async (callback) => {
-    const client = await pool.connect();
+    const client = await pool.getConnection();
     try {
-        await client.query('BEGIN');
+        await client.beginTransaction();
         const result = await callback(client);
-        await client.query('COMMIT');
+        await client.commit();
         return result;
     } catch (e) {
-        await client.query('ROLLBACK');
+        await client.rollback();
         throw e;
     } finally {
         client.release();

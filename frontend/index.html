@@ -2,12 +2,109 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend-temp</title>
+    <title>Wallet Console</title>
+    <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div class="backdrop"></div>
+    <div id="app" class="app-shell">
+      <header class="hero">
+        <p class="eyebrow">DBT Wallet</p>
+        <h1>Wallet Control Console</h1>
+        <p class="subhead">Authenticate users and execute wallet operations from one dashboard.</p>
+      </header>
+
+      <section class="panel grid two">
+        <article>
+          <h2>Connection</h2>
+          <label class="field-label" for="apiBase">API Base URL</label>
+          <input id="apiBase" type="text" placeholder="http://localhost:3000" />
+          <p class="muted">Default: current origin.</p>
+        </article>
+        <article>
+          <h2>Session</h2>
+          <div id="sessionInfo" class="session-info">Not logged in</div>
+          <button id="clearSession" class="btn ghost">Clear Local Session</button>
+        </article>
+      </section>
+
+      <section class="panel grid two">
+        <article>
+          <h2>Register</h2>
+          <form id="registerForm" class="stack">
+            <input name="identifier" placeholder="Identifier or email" required />
+            <input name="password" placeholder="Password (min 8 chars)" type="password" required />
+            <button class="btn">Create Account</button>
+          </form>
+        </article>
+        <article>
+          <h2>Login</h2>
+          <form id="loginForm" class="stack">
+            <input name="identifier" placeholder="Identifier or email" required />
+            <input name="password" placeholder="Password" type="password" required />
+            <button class="btn">Login</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="panel grid two">
+        <article>
+          <h2>Token Actions</h2>
+          <div class="button-row">
+            <button id="refreshToken" class="btn">Refresh Token</button>
+            <button id="logout" class="btn danger">Logout</button>
+          </div>
+        </article>
+        <article>
+          <h2>Access Token</h2>
+          <textarea id="accessToken" rows="5" readonly></textarea>
+        </article>
+      </section>
+
+      <section class="panel grid two">
+        <article>
+          <h2>Balance</h2>
+          <div class="button-row">
+            <button id="getBalance" class="btn">Get Balance</button>
+          </div>
+          <p id="balanceValue" class="metric">-</p>
+        </article>
+        <article>
+          <h2>Deposit</h2>
+          <form id="depositForm" class="stack">
+            <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required />
+            <input name="referenceId" placeholder="Reference ID" required />
+            <button class="btn">Deposit</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="panel grid two">
+        <article>
+          <h2>Withdraw</h2>
+          <form id="withdrawForm" class="stack">
+            <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required />
+            <input name="referenceId" placeholder="Reference ID" required />
+            <button class="btn">Withdraw</button>
+          </form>
+        </article>
+        <article>
+          <h2>Transfer</h2>
+          <form id="transferForm" class="stack">
+            <input name="toAccountId" placeholder="To Account ID" required />
+            <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required />
+            <input name="referenceId" placeholder="Reference ID" required />
+            <button class="btn">Transfer</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="panel">
+        <h2>Activity Log</h2>
+        <pre id="log" class="log"></pre>
+      </section>
+    </div>
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

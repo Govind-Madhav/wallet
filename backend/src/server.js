@@ -15,7 +15,7 @@ const knex = require('knex');
 
 // 2. Wallet Engine
 const WalletCore = require('./wallet-engine/core/WalletCore');
-const PostgresWalletAdapter = require('./wallet-engine/adapters/storage/PostgresWalletAdapter');
+const MysqlWalletAdapter = require('./wallet-engine/adapters/storage/MysqlWalletAdapter');
 const createWalletRouter = require('./wallet-engine/router/walletRouter');
 const { query, pool } = require('./config/db');
 const { sendEmailVerification } = require('./auth-engine/services/emailSender');
@@ -33,13 +33,13 @@ if (!process.env.JWT_SECRET) {
 
 // Initialize the Knex Database Connection for the Auth Engine
 const dbInstance = knex({
-    client: 'pg',
+    client: 'mysql2',
     connection: process.env.DATABASE_URL,
 });
 
 // Initialize the universal Adapters
 const authAdapter = new KnexAuthAdapter(dbInstance);
-const walletAdapter = new PostgresWalletAdapter();
+const walletAdapter = new MysqlWalletAdapter();
 
 const authLimiter = rateLimit({
     windowMs: Number.parseInt(process.env.AUTH_RATE_WINDOW_MS, 10) || 15 * 60 * 1000,
@@ -85,7 +85,7 @@ const policyResolver = async ({ policy, claims, context }) => {
     return false;
 };
 
-// Booting up the Auth Engine with our Postgres Adapter
+// Booting up the Auth Engine with our SQL Adapter
 const authSystem = Auth.init({
     storageAdapter: authAdapter,
     claimsResolver: claimsResolver,
@@ -107,7 +107,7 @@ authSystem.onEmailVerificationRequested(async ({ identifier, rawToken, expiresAt
     }
 });
 
-// Booting up the Wallet Engine with our Postgres Adapter
+// Booting up the Wallet Engine with our MySQL Adapter
 const walletCore = new WalletCore(walletAdapter);
 const walletRouter = createWalletRouter(walletCore, {
     resolveRecipientAccountId: async (email) => {
@@ -194,7 +194,7 @@ authAdapter
         server = app.listen(PORT, () => {
             console.log(`Dual-Engine Backend running at http://localhost:${PORT}`);
             console.log('   Auth Engine (Knex Schema Builder): /auth/*');
-            console.log('   Wallet Engine (Raw PG): /api/wallet/*');
+            console.log('   Wallet Engine (Raw MySQL): /api/wallet/*');
         });
     })
     .catch((e) => {

@@ -5,16 +5,22 @@ const knex = require('knex');
 
 async function verify() {
     console.log("1. Initializing Knex Auth Adapter schemas...");
-    const dbInstance = knex({ client: 'pg', connection: process.env.DATABASE_URL });
+    const dbInstance = knex({ client: 'mysql2', connection: process.env.DATABASE_URL });
     const authAdapter = new KnexAuthAdapter(dbInstance);
     await authAdapter.initSchema();
     
     console.log("\n2. Fetching all tables from database...");
-    const res = await pool.query(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`);
+    const dbName = new URL(process.env.DATABASE_URL).pathname.replace('/', '');
+    const [rows] = await pool.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name`,
+        [dbName]
+    );
     
-    const dbName = process.env.DATABASE_URL.split('/').pop();
     console.log(`\nTables successfully verified in "${dbName}":`);
-    res.rows.forEach(r => console.log(` - ${r.table_name}`));
+    rows.forEach((r) => {
+        const tableName = r.table_name || r.TABLE_NAME;
+        console.log(` - ${tableName}`);
+    });
     
     process.exit(0);
 }

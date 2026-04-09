@@ -1,46 +1,44 @@
 const { runInTransaction, query } = require('../../../config/db');
 
-class PostgresWalletAdapter {
+class MysqlWalletAdapter {
     async reserveReference(client, referenceId, transactionKind) {
-        const res = await client.query(
-            `INSERT INTO transaction_refs (reference_id, transaction_kind)
-             VALUES ($1, $2)
-             ON CONFLICT (reference_id) DO NOTHING
-             RETURNING reference_id`,
+        const [res] = await client.execute(
+            `INSERT IGNORE INTO transaction_refs (reference_id, transaction_kind)
+             VALUES (?, ?)`,
             [referenceId, transactionKind]
         );
-        return res.rowCount === 1;
+        return res.affectedRows === 1;
     }
 
     async ensureAccount(client, accountId) {
-        await client.query(
-            `INSERT INTO accounts (id, owner_name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        await client.execute(
+            `INSERT IGNORE INTO accounts (id, owner_name) VALUES (?, ?)`,
             [accountId, `Account-${String(accountId).substring(0, 8)}`]
         );
     }
 
     async findLedgerByReference(client, referenceId) {
-        const res = await client.query(
-            `SELECT * FROM ledger WHERE reference_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        const [rows] = await client.execute(
+            `SELECT * FROM ledger WHERE reference_id = ? ORDER BY created_at DESC LIMIT 1`,
             [referenceId]
         );
-        return res.rows[0] || null;
+        return rows[0] || null;
     }
 
     async findTransferByReference(client, referenceId) {
-        const res = await client.query(
-            `SELECT * FROM ledger WHERE reference_id IN ($1, $2) ORDER BY created_at ASC`,
+        const [rows] = await client.execute(
+            `SELECT * FROM ledger WHERE reference_id IN (?, ?) ORDER BY created_at ASC`,
             [`${referenceId}_out`, `${referenceId}_in`]
         );
-        return res.rows;
+        return rows;
     }
 
     async getBalance(accountId) {
         const res = await query(
-            `SELECT COALESCE(SUM(amount), 0) as balance FROM ledger WHERE account_id = $1`,
+            `SELECT COALESCE(SUM(amount), 0) AS balance FROM ledger WHERE account_id = ?`,
             [accountId]
         );
-        return Number.parseFloat(res.rows[0].balance);
+        return Number.parseFloat(res.rows[0]?.balance || 0);
     }
 
     async executeDeposit(accountId, amount, referenceId) {
@@ -53,12 +51,14 @@ class PostgresWalletAdapter {
                 throw new Error('REFERENCE_ID_ALREADY_USED');
             }
 
-            const res = await client.query(
+            const [res] = await client.execute(
                 `INSERT INTO ledger (account_id, amount, transaction_type, reference_id)
-                 VALUES ($1, $2, 'DEPOSIT', $3) RETURNING *`,
+                 VALUES (?, ?, 'DEPOSIT', ?)`,
                 [accountId, amount, referenceId]
             );
-            return res.rows[0];
+
+            const [rows] = await client.execute(`SELECT * FROM ledger WHERE id = ? LIMIT 1`, [res.insertId]);
+            return rows[0];
         });
     }
 
@@ -72,28 +72,29 @@ class PostgresWalletAdapter {
                 throw new Error('REFERENCE_ID_ALREADY_USED');
             }
 
-            await client.query(
-                `SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`,
+            await client.execute(
+                `SELECT id FROM accounts WHERE id = ? FOR UPDATE`,
                 [accountId]
             );
 
-            const balanceRes = await client.query(
-                `SELECT COALESCE(SUM(amount), 0) as balance FROM ledger WHERE account_id = $1`,
+            const [balanceRows] = await client.execute(
+                `SELECT COALESCE(SUM(amount), 0) AS balance FROM ledger WHERE account_id = ?`,
                 [accountId]
             );
-            const currentBalance = Number.parseFloat(balanceRes.rows[0].balance);
+            const currentBalance = Number.parseFloat(balanceRows[0].balance);
 
             if (currentBalance < amount) {
                 throw new Error(`Insufficient funds. Available: ${currentBalance}, Required: ${amount}`);
             }
 
-            const res = await client.query(
+            const [res] = await client.execute(
                 `INSERT INTO ledger (account_id, amount, transaction_type, reference_id)
-                 VALUES ($1, $2, 'WITHDRAWAL', $3) RETURNING *`,
+                 VALUES (?, ?, 'WITHDRAWAL', ?)`,
                 [accountId, -amount, referenceId]
             );
 
-            return res.rows[0];
+            const [rows] = await client.execute(`SELECT * FROM ledger WHERE id = ? LIMIT 1`, [res.insertId]);
+            return rows[0];
         });
     }
 
@@ -109,34 +110,37 @@ class PostgresWalletAdapter {
             }
 
             const accountsToLock = [fromAccountId, toAccountId].sort((a, b) => String(a).localeCompare(String(b)));
-            
+
             for (const acc of accountsToLock) {
-                await client.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [acc]);
+                await client.execute(`SELECT id FROM accounts WHERE id = ? FOR UPDATE`, [acc]);
             }
 
-            const balanceRes = await client.query(
-                `SELECT COALESCE(SUM(amount), 0) as balance FROM ledger WHERE account_id = $1`,
+            const [balanceRows] = await client.execute(
+                `SELECT COALESCE(SUM(amount), 0) AS balance FROM ledger WHERE account_id = ?`,
                 [fromAccountId]
             );
-            if (Number.parseFloat(balanceRes.rows[0].balance) < amount) {
+            if (Number.parseFloat(balanceRows[0].balance) < amount) {
                 throw new Error('Insufficient funds for transfer');
             }
 
-            const debit = await client.query(
+            const [debitRes] = await client.execute(
                 `INSERT INTO ledger (account_id, amount, transaction_type, reference_id)
-                 VALUES ($1, $2, 'TRANSFER_OUT', $3) RETURNING *`,
+                 VALUES (?, ?, 'TRANSFER_OUT', ?)`,
                 [fromAccountId, -amount, `${referenceId}_out`]
             );
 
-            const credit = await client.query(
+            const [creditRes] = await client.execute(
                 `INSERT INTO ledger (account_id, amount, transaction_type, reference_id)
-                 VALUES ($1, $2, 'TRANSFER_IN', $3) RETURNING *`,
+                 VALUES (?, ?, 'TRANSFER_IN', ?)`,
                 [toAccountId, amount, `${referenceId}_in`]
             );
 
-            return [debit.rows[0], credit.rows[0]];
+            const [debitRows] = await client.execute(`SELECT * FROM ledger WHERE id = ? LIMIT 1`, [debitRes.insertId]);
+            const [creditRows] = await client.execute(`SELECT * FROM ledger WHERE id = ? LIMIT 1`, [creditRes.insertId]);
+
+            return [debitRows[0], creditRows[0]];
         });
     }
 }
 
-module.exports = PostgresWalletAdapter;
+module.exports = MysqlWalletAdapter;
