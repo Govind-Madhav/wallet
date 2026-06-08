@@ -17,8 +17,9 @@ const knex = require('knex');
 const WalletCore = require('./wallet-engine/core/WalletCore');
 const MysqlWalletAdapter = require('./wallet-engine/adapters/storage/MysqlWalletAdapter');
 const createWalletRouter = require('./wallet-engine/router/walletRouter');
+const createAdminRouter = require('./admin-engine/router/adminRouter');
 const { query, pool } = require('./config/db');
-const { sendEmailVerification, sendPasswordResetEmail } = require('./auth-engine/services/emailSender');
+const { sendEmailVerification, sendPasswordResetEmail, sendWalletSecurityAlertEmail } = require('./auth-engine/services/emailSender');
 
 const app = express();
 app.use(express.json());
@@ -65,11 +66,114 @@ const walletLimiter = rateLimit({
     message: { error: 'RATE_LIMIT_EXCEEDED' }
 });
 
+const adminLimiter = rateLimit({
+    windowMs: Number.parseInt(process.env.ADMIN_RATE_WINDOW_MS, 10) || 60 * 1000,
+    max: Number.parseInt(process.env.ADMIN_RATE_MAX, 10) || 240,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'RATE_LIMIT_EXCEEDED' }
+});
+
+const parseMetadata = (metadata) => {
+    if (!metadata) return {};
+    if (typeof metadata === 'object') return metadata;
+
+    try {
+        return JSON.parse(metadata);
+    } catch {
+        return {};
+    }
+};
+
+const parseBooleanLike = (value) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+        if (['false', '0', 'no', 'n', ''].includes(normalized)) return false;
+    }
+
+    return false;
+};
+
+const resolveMetadataBoolean = (metadata, keys) => {
+    if (!metadata || typeof metadata !== 'object') return false;
+
+    for (const key of keys) {
+        if (Object.hasOwn(metadata, key)) {
+            return parseBooleanLike(metadata[key]);
+        }
+    }
+
+    return false;
+};
+
+const parseAdminIdentifiers = () => {
+    const raw = process.env.ADMIN_IDENTIFIERS || process.env.ADMIN_EMAILS || '';
+    const entries = raw
+        .split(',')
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean);
+
+    return new Set(entries);
+};
+
+const adminIdentifiers = parseAdminIdentifiers();
+
+const resolveRolesForUser = (user) => {
+    const roles = new Set(['user']);
+    const metadata = parseMetadata(user?.metadata);
+
+    const metadataRoles = Array.isArray(metadata.roles)
+        ? metadata.roles
+        : [metadata.role].filter(Boolean);
+
+    for (const role of metadataRoles) {
+        if (typeof role === 'string' && role.trim()) {
+            roles.add(role.trim().toLowerCase());
+        }
+    }
+
+    if (metadata.isAdmin === true) {
+        roles.add('admin');
+    }
+
+    const identifier = String(user?.identifier || '').toLowerCase();
+    if (identifier && adminIdentifiers.has(identifier)) {
+        roles.add('admin');
+    }
+
+    return [...roles];
+};
+
+const resolveAdminRole = (metadata) => {
+    const explicit = typeof metadata?.adminRole === 'string' ? metadata.adminRole.trim().toUpperCase() : null;
+    if (explicit === 'SUPER_ADMIN' || explicit === 'BRANCH_MANAGER') return explicit;
+
+    const roles = Array.isArray(metadata?.roles)
+        ? metadata.roles.map((role) => String(role).trim().toLowerCase())
+        : [];
+
+    if (roles.includes('super_admin')) return 'SUPER_ADMIN';
+    if (roles.includes('branch_manager')) return 'BRANCH_MANAGER';
+    if (roles.includes('admin')) return 'BRANCH_MANAGER';
+    return null;
+};
+
 
 const claimsResolver = async ({ userId, sessionId, context }) => {
-    
+    const user = await authAdapter.findUserById(userId);
+    const metadata = parseMetadata(user?.metadata);
     const walletAccountId = userId.startsWith('user_') ? userId.replace('user_', '') : userId;
-    return { accountId: walletAccountId, roles: ['user'] };
+    return {
+        accountId: walletAccountId,
+        roles: resolveRolesForUser(user),
+        adminRole: resolveAdminRole(metadata),
+        kycVerified: resolveMetadataBoolean(metadata, ['kycVerified', 'kyc_verified', 'isKycVerified']),
+        trustedUser: resolveMetadataBoolean(metadata, ['trustedUser', 'trusted_user', 'isTrustedUser'])
+    };
 };
 
 
@@ -77,6 +181,7 @@ const policyResolver = async ({ policy, claims, context }) => {
     const roles = Array.isArray(claims?.roles) ? claims.roles : [];
 
     if (policy === 'wallet:admin') return roles.includes('admin');
+    if (policy === 'wallet:admin:force') return roles.includes('super_admin');
     if (policy === 'wallet:user') return roles.includes('user') || roles.includes('admin');
 
     // Deny unknown policies by default.
@@ -125,6 +230,11 @@ authSystem.onPasswordResetRequested(async ({ identifier, rawToken, expiresAt }) 
 
 // Booting up the Wallet Engine with our MySQL Adapter
 const walletCore = new WalletCore(walletAdapter);
+const adminRouter = createAdminRouter({
+    query,
+    walletCore,
+    maxPageSize: Number.parseInt(process.env.ADMIN_MAX_PAGE_SIZE, 10) || 200
+});
 const walletRouter = createWalletRouter(walletCore, {
     resolveRecipientAccountId: async (email) => {
         if (typeof email !== 'string') return null;
@@ -149,8 +259,64 @@ const walletRouter = createWalletRouter(walletCore, {
             userId: user.id,
             accountId: user.id.startsWith('user_') ? user.id.replace('user_', '') : user.id
         };
+    },
+    notifySecurityEvent: async (event) => {
+        const accountId = String(event?.accountId || '').trim();
+        if (!accountId) return;
+
+        const userId = accountId.startsWith('user_') ? accountId : `user_${accountId}`;
+        const user = await authAdapter.findUserById(userId);
+        if (!user?.identifier) return;
+
+        const otpChallenge = event?.otpChallenge || null;
+        const securityEvents = Array.isArray(event?.securityEvents) ? event.securityEvents : [];
+
+        const lines = event?.type === 'WITHDRAWAL_OTP_REQUIRED'
+            ? [
+                'A withdrawal is waiting for OTP verification before it can be completed.',
+                `Transaction ID: ${otpChallenge?.transactionId || 'N/A'}`,
+                `OTP expires at: ${otpChallenge?.expiresAt || 'N/A'}`
+            ]
+            : [];
+
+        for (const item of securityEvents) {
+            lines.push(item.message || item.type);
+        }
+
+        await sendWalletSecurityAlertEmail({
+            toEmail: user.identifier,
+            subject: 'DBT Wallet security alert',
+            heading: event?.type === 'WITHDRAWAL_OTP_REQUIRED' ? 'OTP verification required' : 'Security alert',
+            messageLines: lines,
+            details: {
+                accountId,
+                ipAddress: otpChallenge?.ipAddress || null,
+                deviceId: otpChallenge?.deviceId || null,
+                amount: otpChallenge?.amount || null
+            }
+        });
     }
 });
+
+const JOB_INTERVAL_MS = Number.parseInt(process.env.WALLET_JOB_INTERVAL_MS, 10) || 5 * 60 * 1000;
+const ESCROW_SYNC_INTERVAL_MS = Number.parseInt(process.env.ESCROW_SYNC_INTERVAL_MS, 10) || 24 * 60 * 60 * 1000;
+const backgroundJobs = [];
+
+const scheduleJob = (fn, intervalMs) => {
+    const run = async () => {
+        try {
+            await fn();
+        } catch (error) {
+            console.error('[Background Job Error]', error);
+        }
+    };
+
+    void run();
+    const timer = setInterval(() => {
+        void run();
+    }, intervalMs);
+    backgroundJobs.push(timer);
+};
 
 // Public Routes
 app.use('/auth', authLimiter);
@@ -159,6 +325,7 @@ app.use('/auth', authSystem.router);
 
 // Protected Routes (The Magic happens here)
 app.use('/api/wallet', walletLimiter, authSystem.authenticate, walletRouter);
+app.use('/api/admin', adminLimiter, authSystem.authenticate, authSystem.authorize('wallet:admin'), adminRouter);
 
 app.get('/healthz', (req, res) => {
     res.status(200).json({
@@ -199,6 +366,10 @@ const gracefulShutdown = async (signal) => {
         server.close(() => resolve());
     });
 
+    for (const timer of backgroundJobs) {
+        clearInterval(timer);
+    }
+
     await closeServer();
     await Promise.allSettled([
         dbInstance.destroy(),
@@ -220,11 +391,14 @@ console.log('Building schemas dynamically...');
 // eslint-disable-next-line unicorn/prefer-top-level-await
 authAdapter
     .initSchema()
+    .then(() => walletCore.initSchema())
     .then(() => {
+        scheduleJob(() => walletCore.adapter.ensureDummyEscrowAccount(), ESCROW_SYNC_INTERVAL_MS);
         server = app.listen(PORT, () => {
             console.log(`Dual-Engine Backend running at http://localhost:${PORT}`);
             console.log('   Auth Engine (Knex Schema Builder): /auth/*');
             console.log('   Wallet Engine (Raw MySQL): /api/wallet/*');
+            console.log('   Admin Engine: /api/admin/*');
         });
     })
     .catch((e) => {

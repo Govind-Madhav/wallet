@@ -19,7 +19,15 @@ const depositSchema = z.object({
 const withdrawSchema = z.object({
     accountId: accountIdSchema.optional(),
     amount: z.unknown(),
-    referenceId: z.string().trim().min(1).max(255)
+    referenceId: z.string().trim().min(1).max(255),
+    idempotencyKey: z.string().trim().min(1).max(255).optional(),
+    method: z.enum(['UPI', 'BANK']).optional(),
+    accountDetails: z.unknown().optional()
+});
+
+const supportTicketSchema = z.object({
+    subject: z.string().trim().min(3).max(255),
+    description: z.string().trim().min(10).max(5000)
 });
 
 const parseBody = (schema, req, res) => {
@@ -63,6 +71,11 @@ const normalizeLedgerReference = (value) => {
 function createWalletRouter(walletCore, options = {}) {
     const { resolveRecipientAccountId, resolveAccountDisplayDetails } = options;
     const router = express.Router();
+
+    const getRequestContext = (req) => ({
+        ipAddress: req.context?.requestIp || req.ip || req.headers['x-forwarded-for'] || null,
+        userAgent: req.context?.userAgent || req.get('user-agent') || null
+    });
 
     router.get('/balance', async (req, res) => {
         try {
@@ -129,6 +142,7 @@ function createWalletRouter(walletCore, options = {}) {
             let toAccountId = normalizeAccountId(validated.toAccountId);
             const { toEmail, amount, referenceId } = validated;
             const parsedAmount = parsePositiveAmount(amount);
+            const requestContext = getRequestContext(req);
 
             if (!toAccountId && toEmail) {
                 if (typeof resolveRecipientAccountId !== 'function') {
@@ -143,7 +157,10 @@ function createWalletRouter(walletCore, options = {}) {
                 return res.status(400).json({ error: 'Missing required fields. Provide toAccountId or toEmail.' });
             }
 
-            const result = await walletCore.transfer(fromAccountId, toAccountId, parsedAmount, referenceId);
+            const result = await walletCore.transfer(fromAccountId, toAccountId, parsedAmount, referenceId, {
+                ...requestContext,
+                trustedUser: Boolean(req.claims?.trustedUser)
+            });
             res.json({ success: true, result });
         } catch (e) {
             res.status(400).json({ error: e.message });
@@ -160,12 +177,13 @@ function createWalletRouter(walletCore, options = {}) {
             if (!accountId) return res.status(403).json({ error: 'Unauthorized: Missing account identifier' });
             const { amount, referenceId } = validated;
             const parsedAmount = parsePositiveAmount(amount);
+            const requestContext = getRequestContext(req);
 
             if (!accountId || !parsedAmount || !referenceId) {
                 return res.status(400).json({ error: 'Missing required fields' });
             }
 
-            const result = await walletCore.deposit(accountId, parsedAmount, referenceId);
+            const result = await walletCore.deposit(accountId, parsedAmount, referenceId, requestContext);
             res.json({ success: true, result });
         } catch (e) {
             res.status(400).json({ error: e.message });
@@ -180,17 +198,69 @@ function createWalletRouter(walletCore, options = {}) {
             // Strictly enforce withdraw from the authenticated user's account
             const accountId = normalizeAccountId(req.claims?.accountId);
             if (!accountId) return res.status(403).json({ error: 'Unauthorized: Missing account identifier' });
-            const { amount, referenceId } = validated;
+            const { amount, referenceId, idempotencyKey, method, accountDetails } = validated;
             const parsedAmount = parsePositiveAmount(amount);
+            const requestContext = getRequestContext(req);
 
             if (!accountId || !parsedAmount || !referenceId) {
                 return res.status(400).json({ error: 'Missing required fields' });
             }
 
-            const result = await walletCore.withdraw(accountId, parsedAmount, referenceId);
+            const result = await walletCore.requestWithdrawal(accountId, parsedAmount, {
+                referenceId,
+                idempotencyKey,
+                method,
+                accountDetails,
+                trustedUser: req.claims?.trustedUser,
+                kycVerified: req.claims?.kycVerified,
+                ipAddress: requestContext.ipAddress,
+                userAgent: requestContext.userAgent
+            });
+
             res.json({ success: true, result });
         } catch (e) {
             res.status(400).json({ error: e.message });
+        }
+    });
+
+    router.get('/withdrawals', async (req, res) => {
+        try {
+            const accountId = normalizeAccountId(req.claims?.accountId);
+            if (!accountId) return res.status(403).json({ error: 'Unauthorized: Missing account identifier' });
+
+            const limit = Number.parseInt(req.query.limit, 10);
+            const withdrawals = await walletCore.getUserWithdrawals(accountId, limit);
+            res.json({ withdrawals });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    router.post('/support/create', async (req, res) => {
+        try {
+            const validated = parseBody(supportTicketSchema, req, res);
+            if (!validated) return;
+
+            const accountId = normalizeAccountId(req.claims?.accountId);
+            if (!accountId) return res.status(403).json({ error: 'Unauthorized: Missing account identifier' });
+
+            const ticket = await walletCore.createSupportTicket(accountId, validated.subject, validated.description);
+            res.json({ success: true, ticket });
+        } catch (e) {
+            res.status(400).json({ error: e.message });
+        }
+    });
+
+    router.get('/support/my-tickets', async (req, res) => {
+        try {
+            const accountId = normalizeAccountId(req.claims?.accountId);
+            if (!accountId) return res.status(403).json({ error: 'Unauthorized: Missing account identifier' });
+
+            const limitValue = Number.parseInt(req.query.limit, 10);
+            const tickets = await walletCore.getSupportTickets(accountId, limitValue);
+            res.json({ tickets });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
         }
     });
 

@@ -203,7 +203,65 @@ const sendPasswordResetEmail = async ({ toEmail, rawToken, expiresAt }) => {
     console.log('[Password Reset] Recovery email sent to:', toEmail);
 };
 
+const sendWalletSecurityAlertEmail = async ({ toEmail, subject, heading, messageLines = [], details = {} }) => {
+        if (!toEmail) return;
+
+        const fromEmail = resolveFromEmail();
+        const mailer = getTransporter();
+
+        const textBody = [
+                'DBT Wallet - Security Alert',
+                '',
+                heading || 'Security event detected',
+                '',
+                ...messageLines,
+                '',
+                `Account: ${details.accountId || 'N/A'}`,
+                `Time (IST): ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`,
+                `IP Address: ${details.ipAddress || 'N/A'}`,
+                `Device ID: ${details.deviceId || 'N/A'}`,
+                `Amount: ${typeof details.amount === 'number' ? details.amount : 'N/A'}`
+        ].join('\n');
+
+        const htmlBody = `
+<!doctype html>
+<html>
+    <body style="margin:0;padding:24px;background:#f3f6fb;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+            <div style="padding:20px 24px;background:linear-gradient(90deg,#111827,#ef4444);color:#ffffff;">
+                <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.9;">DBT Wallet</div>
+                <h1 style="margin:6px 0 0 0;font-size:22px;line-height:1.3;">${heading || 'Security alert'}</h1>
+            </div>
+            <div style="padding:24px;">
+                <p style="margin:0 0 12px 0;line-height:1.6;">${messageLines.join('<br/>')}</p>
+                <div style="margin-top:18px;padding:16px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;">
+                    <div style="margin-bottom:8px;"><strong>Account:</strong> ${details.accountId || 'N/A'}</div>
+                    <div style="margin-bottom:8px;"><strong>Time (IST):</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
+                    <div style="margin-bottom:8px;"><strong>IP Address:</strong> ${details.ipAddress || 'N/A'}</div>
+                    <div style="margin-bottom:8px;"><strong>Device ID:</strong> ${details.deviceId || 'N/A'}</div>
+                    <div><strong>Amount:</strong> ${typeof details.amount === 'number' ? details.amount : 'N/A'}</div>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>`;
+
+        if (!mailer) {
+                console.log('[Wallet Security Alert] SMTP not configured.', { toEmail, subject, heading, details, messageLines });
+                return;
+        }
+
+        await mailer.sendMail({
+                from: fromEmail,
+                to: toEmail,
+                subject: subject || 'DBT Wallet security alert',
+                text: textBody,
+                html: htmlBody
+        });
+};
+
 module.exports = {
     sendEmailVerification,
-    sendPasswordResetEmail
+        sendPasswordResetEmail,
+        sendWalletSecurityAlertEmail
 };

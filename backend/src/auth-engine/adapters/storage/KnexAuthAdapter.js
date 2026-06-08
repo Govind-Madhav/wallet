@@ -94,6 +94,30 @@ class KnexAuthAdapter {
             });
             console.log('Auth Engine: Created `pending_registrations` table via Knex Abstract Builder');
         }
+
+        const hasLinkedBanks = await this.db.schema.hasTable('user_linked_banks');
+        if (!hasLinkedBanks) {
+            await this.db.schema.createTable('user_linked_banks', (t) => {
+                t.string('id', 50).primary();
+                t.string('user_id', 50).notNullable();
+                t.string('phone_number', 20);
+                t.string('bank_name', 255);
+                t.timestamps(true, true);
+            });
+            console.log('Auth Engine: Created `user_linked_banks` table via Knex Abstract Builder');
+        }
+
+        const hasLinkedUpis = await this.db.schema.hasTable('user_linked_upis');
+        if (!hasLinkedUpis) {
+            await this.db.schema.createTable('user_linked_upis', (t) => {
+                t.string('id', 50).primary();
+                t.string('user_id', 50).notNullable();
+                t.string('upi_id', 255);
+                t.timestamps(true, true);
+            });
+            console.log('Auth Engine: Created `user_linked_upis` table via Knex Abstract Builder');
+        }
+
         return true;
     }
 
@@ -101,12 +125,34 @@ class KnexAuthAdapter {
         const id = `user_${randomUUID()}`;
         const meta = typeof metadata === 'string' ? metadata : JSON.stringify(metadata || {});
         try {
-            await this.db('users').insert({
-                id,
-                identifier,
-                password_hash: passwordHash,
-                metadata: meta
+            await this.db.transaction(async (trx) => {
+                await trx('users').insert({
+                    id,
+                    identifier,
+                    password_hash: passwordHash,
+                    metadata: meta
+                });
+
+                const metaObj = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
+
+                if (metaObj.bankName || metaObj.phone) {
+                    await trx('user_linked_banks').insert({
+                        id: `bank_${randomUUID()}`,
+                        user_id: id,
+                        phone_number: metaObj.phone || null,
+                        bank_name: metaObj.bankName || null
+                    });
+                }
+
+                if (metaObj.upiId) {
+                    await trx('user_linked_upis').insert({
+                        id: `upi_${randomUUID()}`,
+                        user_id: id,
+                        upi_id: metaObj.upiId
+                    });
+                }
             });
+
             const user = await this.db('users').where({ id }).first();
             return user;
         } catch (error) {

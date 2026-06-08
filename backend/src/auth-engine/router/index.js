@@ -193,7 +193,8 @@ const handleLoginSuccess = async (user, req, res) => {
             accessToken,
             refreshToken: rawRefreshToken,
             sessionId: session.sessionId,
-            expiresIn: tokenEngine.ACCESS_EXPIRY
+            expiresIn: tokenEngine.ACCESS_EXPIRY,
+            userId: user.id
         });
     } catch (err) {
         console.error('Login Logic Error:', err);
