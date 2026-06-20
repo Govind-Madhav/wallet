@@ -10,11 +10,11 @@ export function AuthPage({ updateTokens, addLog, addToast, session }) {
   }
 
   return (
-    <div style={{ maxWidth: '450px', margin: '4rem auto 0' }}>
-      <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-        <p className="eyebrow" style={{ color: 'var(--accent)', fontWeight: 'bold' }}>DBT Wallet</p>
-        <h1 style={{ margin: '0.5rem 0', fontSize: '2rem' }}>Welcome Back</h1>
-        <p className="subhead" style={{ color: 'var(--muted)' }}>Enter your credentials to access your console.</p>
+    <div className="auth-shell">
+      <div className="auth-intro">
+        <p className="eyebrow">DBT Wallet</p>
+        <h1>Welcome Back</h1>
+        <p className="subhead">Sign in to access your secure wallet console.</p>
       </div>
 
       <AuthPanel 

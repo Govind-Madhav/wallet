@@ -8,9 +8,8 @@ export function useTheme() {
     if (stored === 'dark' || stored === 'light') {
       return stored;
     }
-
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    return prefersDark ? 'dark' : 'light';
+    // Default to dark
+    return 'dark';
   });
 
   useEffect(() => {

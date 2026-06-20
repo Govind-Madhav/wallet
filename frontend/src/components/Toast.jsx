@@ -7,22 +7,22 @@ export function ToastContainer({ toasts, removeToast }) {
     <div className="toast-container">
       {toasts.map(toast => {
         let Icon = Info;
-        if (toast.type === 'success') Icon = CheckCircle;
-        if (toast.type === 'error') Icon = AlertCircle;
+        let iconClass = 'info';
+        if (toast.type === 'success') { Icon = CheckCircle; iconClass = 'success'; }
+        if (toast.type === 'error') { Icon = AlertCircle; iconClass = 'error'; }
 
         return (
           <div key={toast.id} className={`toast ${toast.type} ${toast.hiding ? 'hiding' : ''}`}>
-            <Icon className="toast-icon" size={20} />
+            <Icon className={`toast-icon ${iconClass}`} size={18} />
             <div className="toast-content">
               <div className="toast-title">{toast.title}</div>
               {toast.message && <div className="toast-message">{toast.message}</div>}
             </div>
             <button 
-              className="btn ghost" 
-              style={{ padding: '0.25rem', marginLeft: 'auto', border: 'none' }}
+              className="toast-close"
               onClick={() => removeToast(toast.id)}
             >
-              <X size={16} />
+              <X size={14} />
             </button>
           </div>
         );

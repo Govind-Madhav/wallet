@@ -1,7 +1,9 @@
 import { Navigate } from 'react-router-dom';
+import PropTypes from 'prop-types';
 import { SessionPanel } from '../components/SessionPanel';
 import { WalletPanel } from '../components/WalletPanel';
 import { RecentTransactionsPanel } from '../components/RecentTransactionsPanel';
+import { BalanceCard } from '../components/BalanceCard';
 
 export function DashboardPage({ session, clearSession, addLog, addToast }) {
   // Protect this route
@@ -11,27 +13,56 @@ export function DashboardPage({ session, clearSession, addLog, addToast }) {
 
   return (
     <>
-      <div className="hero" style={{ padding: '0 0.5rem 1rem' }}>
-        <p className="eyebrow">Overview</p>
-        <h1>My Wallet</h1>
+      {/* Welcome Banner */}
+      <div className="welcome-banner">
+        <p className="eyebrow">Dashboard</p>
+        <h1>Welcome back{session.identifier ? `, ${session.identifier}` : ''}</h1>
         <p className="subhead">Manage your funds and recent transactions securely.</p>
       </div>
 
-      <section className="grid two">
-        <SessionPanel 
-          session={session} 
-          clearSession={clearSession} 
-          addLog={addLog} 
-          addToast={addToast} 
-        />
-        <RecentTransactionsPanel session={session} addLog={addLog} addToast={addToast} />
-      </section>
+      <section className="dashboard-layout">
+        <div className="dashboard-main stack">
+          <RecentTransactionsPanel
+            session={session}
+            addLog={addLog}
+            addToast={addToast}
+            limit={5}
+            showMoreLink
+            moreLinkTo="/transactions"
+            eyebrow="Activity"
+            title="Recent Transactions"
+            description="Review your latest wallet movements and open the full ledger when needed."
+          />
 
-      <WalletPanel 
-        session={session} 
-        addLog={addLog} 
-        addToast={addToast} 
-      />
+          <WalletPanel
+            session={session}
+            addLog={addLog}
+            addToast={addToast}
+            showBalance={false}
+          />
+        </div>
+
+        <aside className="dashboard-side stack">
+          <BalanceCard session={session} addLog={addLog} addToast={addToast} />
+          <SessionPanel
+            session={session}
+            clearSession={clearSession}
+            addLog={addLog}
+            addToast={addToast}
+          />
+        </aside>
+      </section>
     </>
   );
 }
+
+DashboardPage.propTypes = {
+  session: PropTypes.shape({
+    sessionId: PropTypes.string,
+    accessToken: PropTypes.string,
+    identifier: PropTypes.string
+  }).isRequired,
+  clearSession: PropTypes.func.isRequired,
+  addLog: PropTypes.func.isRequired,
+  addToast: PropTypes.func.isRequired
+};

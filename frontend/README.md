@@ -2,6 +2,10 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+In this project, the frontend is organized around three user-facing screens: dashboard, transactions, and profile. The dashboard shows recent activity on the left and the available balance on the right; the profile page includes username and phone number fields; the wallet flow includes OTP-based withdrawal verification; the admin console is not linked from the app shell.
+
+For the full implementation update, see [../CHANGELOG.md](../CHANGELOG.md).
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)

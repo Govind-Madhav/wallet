@@ -4,8 +4,12 @@ import { useSession } from './useSession';
 import { useToast } from './useToast';
 import { ToastContainer } from './components/Toast';
 import { ThemeToggle } from './components/ThemeToggle';
+import { AppNav } from './components/AppNav';
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { TransactionsPage } from './pages/TransactionsPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { AdminPage } from './pages/AdminPage';
 
 function App() {
   const { session, clearSession, updateTokens } = useSession();
@@ -28,19 +32,19 @@ function App() {
 
   return (
     <Router>
-      <div className="backdrop"></div>
-      
       <main className="app-shell">
-        <header className="header" style={{ borderBottom: '1px solid var(--line)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {/* Simple logo indicator */}
-            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--accent)', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'white', fontWeight: 'bold' }}>
-              W
+        <header className="header">
+          <div className="brand-row">
+            <div className="brand-mark" aria-hidden="true">W</div>
+            <div>
+              <p className="brand-kicker">Secure Finance</p>
+              <h2 className="brand-title">DBT Wallet</h2>
             </div>
-            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>DBT Wallet</h2>
           </div>
           <ThemeToggle />
         </header>
+
+        <AppNav session={session} />
 
         <Routes>
           <Route 
@@ -64,6 +68,36 @@ function App() {
                 addToast={addToast} 
               />
             } 
+          />
+          <Route
+            path="/transactions"
+            element={
+              <TransactionsPage
+                session={session}
+                addLog={addLog}
+                addToast={addToast}
+              />
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProfilePage
+                session={session}
+                addLog={addLog}
+                addToast={addToast}
+              />
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminPage
+                session={session}
+                addLog={addLog}
+                addToast={addToast}
+              />
+            }
           />
           {/* Fallback route */}
           <Route path="*" element={<Navigate to="/" replace />} />

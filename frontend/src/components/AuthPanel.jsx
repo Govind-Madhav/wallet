@@ -1,45 +1,47 @@
-// frontend/src/components/AuthPanel.jsx
 import { useState } from 'react';
+import PropTypes from 'prop-types';
+import { Mail, Lock, User, KeyRound, Phone, Building, AtSign } from 'lucide-react';
 import { authApi } from '../api';
 
 function OTPInput({ length = 6, onComplete }) {
   const [code, setCode] = useState('');
   
   return (
-    <div style={{ margin: '1.5rem 0', textAlign: 'center' }}>
+    <div className="otp-shell">
       <input 
+        className="otp-input"
         type="text" 
         value={code}
         onChange={(e) => {
-          const val = e.target.value.replace(/\D/g, '').slice(0, length);
+          const val = e.target.value.replaceAll(/\D/g, '').slice(0, length);
           setCode(val);
         }}
         placeholder="------"
-        style={{
-          letterSpacing: '0.75rem',
-          fontSize: '2rem',
-          textAlign: 'center',
-          fontFamily: 'monospace',
-          fontWeight: 'bold',
-          padding: '1rem'
-        }}
+        maxLength={length}
+        autoComplete="one-time-code"
       />
       <button 
         type="button" 
-        className="btn" 
-        style={{ marginTop: '1rem' }} 
+        className="btn otp-cta"
         onClick={() => code.length === length && onComplete(code)}
         disabled={code.length !== length}
       >
+        <KeyRound size={16} />
         Verify Code
       </button>
     </div>
   );
 }
 
+const TABS = [
+  { key: 'login', label: 'Sign In' },
+  { key: 'register', label: 'Register' },
+  { key: 'recover', label: 'Recover' }
+];
+
 export function AuthPanel({ updateTokens, addLog, addToast }) {
-  const [activeTab, setActiveTab] = useState('login'); // login, register, recover
-  const [registerStep, setRegisterStep] = useState(1); // 1 = Form, 2 = Verify OTP
+  const [activeTab, setActiveTab] = useState('login');
+  const [registerStep, setRegisterStep] = useState(1);
   const [registrationEmail, setRegistrationEmail] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [resetNewPassword, setResetNewPassword] = useState('');
@@ -57,13 +59,25 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
             accessToken: res.accessToken,
             refreshToken: res.refreshToken,
             sessionId: res.sessionId,
+            userId: res.userId,
             identifier: body.identifier || body.email
           });
           addToast('Success', 'Successfully logged in!', 'success');
         }
         addLog('LOGIN_SUCCESS', res);
       } else if (type === 'register') {
-        const res = await authApi.register(body);
+        const payload = {
+          identifier: body.identifier,
+          email: body.email,
+          password: body.password,
+          metadata: {
+            phone: body.phone,
+            bankName: body.bankName,
+            upiId: body.upiId
+          }
+        };
+
+        const res = await authApi.register(payload);
         addToast('Success', res.message || 'Registration successful. Please verify your email.', 'success');
         addLog('REGISTER_SUCCESS', res);
         
@@ -142,11 +156,19 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
       case 'login':
         return (
           <form className="stack" onSubmit={(e) => handleAuth(e, 'login')}>
-            <input name="identifier" placeholder="Email or Username" required />
-            <input name="password" type="password" placeholder="Password" required />
+            <div className="input-group">
+              <Mail size={16} className="input-icon" />
+              <input name="identifier" placeholder="Email or Username" required />
+            </div>
+            <div className="input-group">
+              <Lock size={16} className="input-icon" />
+              <input name="password" type="password" placeholder="Password" required />
+            </div>
             <button className="btn">Sign In</button>
-            <div className="button-row" style={{ marginTop: '0.5rem', justifyContent: 'center' }}>
-              <button type="button" className="btn ghost" style={{ border: 'none' }} onClick={() => setActiveTab('recover')}>Forgot password?</button>
+            <div className="button-row center">
+              <button type="button" className="auth-link-btn" onClick={() => setActiveTab('recover')}>
+                Forgot password?
+              </button>
             </div>
           </form>
         );
@@ -154,18 +176,43 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
         if (registerStep === 1) {
           return (
             <form className="stack" onSubmit={(e) => handleAuth(e, 'register')}>
-              <input name="identifier" placeholder="Username (optional)" />
-              <input name="email" type="email" placeholder="Email address" required />
-              <input name="password" type="password" placeholder="Password (min 8 chars)" required minLength="8" />
+              <div className="input-group">
+                <User size={16} className="input-icon" />
+                <input name="identifier" placeholder="Memorable Username (required)" required />
+              </div>
+              <div className="input-group">
+                <Mail size={16} className="input-icon" />
+                <input name="email" type="email" placeholder="Email address" required />
+              </div>
+              <div className="input-group">
+                <Phone size={16} className="input-icon" />
+                <input name="phone" type="tel" placeholder="Phone Number" required />
+              </div>
+              <div className="input-group" style={{ position: 'relative' }}>
+                <Building size={16} className="input-icon" />
+                <select name="bankName" required defaultValue="" style={{ paddingLeft: '2.5rem', appearance: 'none', color: 'var(--text-secondary)' }}>
+                  <option value="" disabled>Select Bank for Linkage (Demo)</option>
+                  <option value="ABC Bank">ABC Bank</option>
+                  <option value="XYZ Bank">XYZ Bank</option>
+                </select>
+              </div>
+              <div className="input-group">
+                <AtSign size={16} className="input-icon" />
+                <input name="upiId" type="text" placeholder="UPI ID (e.g. user@abcbank)" required />
+              </div>
+              <div className="input-group">
+                <Lock size={16} className="input-icon" />
+                <input name="password" type="password" placeholder="Password (min 8 chars)" required minLength="8" />
+              </div>
               <button className="btn">Create Account</button>
             </form>
           );
         } else {
           // STEP 2: Verify OTP
           return (
-            <div className="stack" style={{ textAlign: 'center' }}>
-              <h3 style={{ margin: '0' }}>Verify Your Email</h3>
-              <p className="muted" style={{ margin: '0.5rem 0 0' }}>We sent a 6-digit code to <strong>{registrationEmail}</strong></p>
+            <div className="stack auth-verify-step">
+              <h3 className="auth-verify-title">Verify Your Email</h3>
+              <p className="muted auth-verify-subhead">We sent a 6-digit code to <strong>{registrationEmail}</strong></p>
               
               <OTPInput length={6} onComplete={handleVerifyOTP} />
               
@@ -178,27 +225,36 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
       case 'recover':
         return (
           <form className="stack" onSubmit={(e) => handleAuth(e, 'forgotPassword')}>
-            <input name="email" type="email" placeholder="Account Email" required />
+            <div className="input-group">
+              <Mail size={16} className="input-icon" />
+              <input name="email" type="email" placeholder="Account Email" required />
+            </div>
             <button className="btn">Send Reset Link</button>
             
-            <h3 style={{ margin: '1rem 0 0.5rem', fontSize: '1rem' }}>Have a recovery code?</h3>
-            <div className="stack" style={{ borderTop: '1px solid var(--line)', paddingTop: '1rem' }}>
-              <input
-                name="token"
-                placeholder="6-digit Recovery OTP"
-                value={resetToken}
-                maxLength={6}
-                inputMode="numeric"
-                pattern="[0-9]{6}"
-                onChange={(event) => setResetToken(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              />
-              <input
-                name="newPassword"
-                type="password"
-                placeholder="New Password"
-                value={resetNewPassword}
-                onChange={(event) => setResetNewPassword(event.target.value)}
-              />
+            <h3 className="auth-mini-title">Have a recovery code?</h3>
+            <div className="stack auth-reset-block">
+              <div className="input-group">
+                <KeyRound size={16} className="input-icon" />
+                <input
+                  name="token"
+                  placeholder="6-digit Recovery OTP"
+                  value={resetToken}
+                  maxLength={6}
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  onChange={(event) => setResetToken(event.target.value.replaceAll(/\D/g, '').slice(0, 6))}
+                />
+              </div>
+              <div className="input-group">
+                <Lock size={16} className="input-icon" />
+                <input
+                  name="newPassword"
+                  type="password"
+                  placeholder="New Password"
+                  value={resetNewPassword}
+                  onChange={(event) => setResetNewPassword(event.target.value)}
+                />
+              </div>
               <button type="button" className="btn ghost" onClick={handleResetPassword}>Reset Password</button>
             </div>
           </form>
@@ -208,34 +264,37 @@ export function AuthPanel({ updateTokens, addLog, addToast }) {
 
   return (
     <div className="panel">
-      {/* Header Tabs */}
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--line)' }}>
-        {['login', 'register', 'recover'].map(tab => (
+      {/* Pill Tab Switcher */}
+      <div className="auth-tabs">
+        {TABS.map(tab => (
           <button 
-            key={tab}
-            className={`btn ghost ${activeTab === tab ? '' : 'muted'}`} 
-            style={{ 
-              border: 'none', 
-              borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
-              borderRadius: '0',
-              padding: '0.5rem',
-              color: activeTab === tab ? 'var(--accent)' : 'var(--muted)',
-              background: 'transparent'
-            }}
+            key={tab.key}
+            className={`auth-tab ${activeTab === tab.key ? 'active' : ''}`} 
             onClick={() => {
-              setActiveTab(tab);
-              if (tab === 'register') setRegisterStep(1); // Reset stepper if switching back
+              setActiveTab(tab.key);
+              if (tab.key === 'register') setRegisterStep(1);
             }}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab.label}
           </button>
         ))}
       </div>
       
       {/* Dynamic Content */}
-      <div style={{ minHeight: '260px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <div className="auth-panel-body">
         {renderForm()}
       </div>
     </div>
   );
 }
+
+OTPInput.propTypes = {
+  length: PropTypes.number,
+  onComplete: PropTypes.func.isRequired
+};
+
+AuthPanel.propTypes = {
+  updateTokens: PropTypes.func.isRequired,
+  addLog: PropTypes.func.isRequired,
+  addToast: PropTypes.func.isRequired
+};
