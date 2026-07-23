@@ -20,7 +20,7 @@
     "test:sql": "node db-scripts/sql_test.js"
   },
   "keywords": [],
-  "author": "CT-4008",
+  "author": "CITS5924",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
