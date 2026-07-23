@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wallet-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wallet-backend
+  template:
+    metadata:
+      labels:
+        app: wallet-backend
+    spec:
+      containers:
+        - name: backend
+          image: wallet-backend:latest
+          imagePullPolicy: Never
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: wallet-config
+                  key: DATABASE_URL
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: wallet-config
+                  key: PORT
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: wallet-config
+                  key: NODE_ENV
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: wallet-secrets
+                  key: jwt-secret
+          ports:
+            - containerPort: 3000
+              name: api
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wallet-backend-service
+spec:
+  selector:
+    app: wallet-backend
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000

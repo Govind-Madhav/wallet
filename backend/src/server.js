@@ -24,6 +24,37 @@ const app = express();
 app.use(express.json());
 app.set('trust proxy', 1);
 
+// Prometheus metrics collection setup
+const client = require('prom-client');
+client.collectDefaultMetrics();
+
+const httpRequestDurationSeconds = new client.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'Duration of HTTP requests in seconds',
+    labelNames: ['method', 'route', 'status_code'],
+    buckets: [0.1, 0.3, 0.5, 0.7, 1, 3, 5, 7, 10]
+});
+
+app.use((req, res, next) => {
+    const start = process.hrtime();
+    res.on('finish', () => {
+        const duration = process.hrtime(start);
+        const durationInSeconds = duration[0] + duration[1] / 1e9;
+        if (!req.path.startsWith('/metrics') && !req.path.includes('.')) {
+            const route = req.route ? req.route.path : req.path;
+            httpRequestDurationSeconds
+                .labels(req.method, route, res.statusCode)
+                .observe(durationInSeconds);
+        }
+    });
+    next();
+});
+
+app.get('/metrics', async (req, res) => {
+    res.setHeader('Content-Type', client.register.contentType);
+    res.send(await client.register.metrics());
+});
+
 const frontendDir = path.resolve(__dirname, '..', '..', 'frontend', 'dist');
 app.use(express.static(frontendDir));
 
