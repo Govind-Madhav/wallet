@@ -4,3 +4,11 @@ node_modules
 !.env.example
 Mini_Project_Documentation.md
 Activity 1_MINI Project.docx
+
+# Terraform - exclude provider binaries and state
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/.terraform.lock.hcl
+devops-report-screenshots/
+Govind_Madhav_Certificate_Pages_Filled.docx

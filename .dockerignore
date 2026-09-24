@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+frontend/node_modules
+backend/node_modules
+.git
+.github
+.vscode
+dist
+.env
+devops-report-screenshots
+terraform/.terraform
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
