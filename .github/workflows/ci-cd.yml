@@ -25,6 +25,7 @@ jobs:
         run: |
           npm install
           npm --prefix backend install
+          npm --prefix backend/src/auth-engine install
 
       - name: Run Unit Tests
         run: |
@@ -41,6 +42,6 @@ jobs:
         run: |
           docker run -d -p 3000:3000 --name ci-wallet-app -e JWT_SECRET=ci-secret-key-12345 wallet-app:latest
           sleep 8
-          curl -f http://localhost:3000/api/health
+          curl -f http://localhost:3000/api/health || (docker logs ci-wallet-app && exit 1)
           docker stop ci-wallet-app
           docker rm ci-wallet-app

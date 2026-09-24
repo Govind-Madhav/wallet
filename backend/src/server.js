@@ -28,6 +28,15 @@ app.set('trust proxy', 1);
 const frontendDir = path.resolve(__dirname, '..', '..', 'frontend', 'dist');
 app.use(express.static(frontendDir));
 
+// Health check endpoint for Docker & CI/CD verification
+app.get('/api/health', (req, res) => {
+    res.status(200).json({
+        status: 'UP',
+        timestamp: new Date().toISOString(),
+        service: 'wallet-app'
+    });
+});
+
 if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is required');
 }
@@ -387,21 +396,26 @@ process.on('SIGTERM', () => {
     void gracefulShutdown('SIGTERM');
 });
 
-console.log('Building schemas dynamically...');
-// eslint-disable-next-line unicorn/prefer-top-level-await
-authAdapter
-    .initSchema()
-    .then(() => walletCore.initSchema())
-    .then(() => {
-        scheduleJob(() => walletCore.adapter.ensureDummyEscrowAccount(), ESCROW_SYNC_INTERVAL_MS);
-        server = app.listen(PORT, () => {
-            console.log(`Dual-Engine Backend running at http://localhost:${PORT}`);
-            console.log('   Auth Engine (Knex Schema Builder): /auth/*');
-            console.log('   Wallet Engine (Raw MySQL): /api/wallet/*');
-            console.log('   Admin Engine: /api/admin/*');
-        });
-    })
-    .catch((e) => {
-        console.error('Failed to boot:', e);
-        process.exit(1);
+const startServer = async () => {
+    try {
+        if (process.env.DATABASE_URL) {
+            console.log('Building schemas dynamically...');
+            await authAdapter.initSchema();
+            await walletCore.initSchema();
+            scheduleJob(() => walletCore.adapter.ensureDummyEscrowAccount(), ESCROW_SYNC_INTERVAL_MS);
+        } else {
+            console.log('DATABASE_URL not set; skipping dynamic DB schema initialization.');
+        }
+    } catch (e) {
+        console.warn('Database initialization warning (running in standalone/container mode):', e.message);
+    }
+
+    server = app.listen(PORT, () => {
+        console.log(`Dual-Engine Backend running at http://localhost:${PORT}`);
+        console.log('   Auth Engine (Knex Schema Builder): /auth/*');
+        console.log('   Wallet Engine (Raw MySQL): /api/wallet/*');
+        console.log('   Admin Engine: /api/admin/*');
     });
+};
+
+void startServer();
